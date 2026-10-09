@@ -122,6 +122,14 @@ label.f{display:block;margin:16px 0 6px;font-size:13px;color:var(--mute);font-we
 .vchips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .vchips span{background:var(--acc-l);color:var(--acc-d);padding:6px 6px 6px 12px;border-radius:99px;font-size:14px;display:inline-flex;gap:8px;align-items:center}
 .vchips b{cursor:pointer;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.08);display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+header.top .btn.sm{float:right;margin-top:8px}
+.selbox{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.25);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px}
+.rc.sel{outline:3px solid var(--acc);outline-offset:-3px}
+.rc.sel .selbox{background:var(--acc);border-color:var(--acc)}
+.selbar{position:fixed;left:12px;right:12px;bottom:calc(78px + env(safe-area-inset-bottom));z-index:25;display:flex;align-items:center;gap:10px;background:var(--ink);color:var(--bg);padding:10px 12px 10px 16px;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.selbar span{flex:1;font-size:15px}
+.selbar .btn{background:transparent;color:var(--bg);border-color:rgba(255,255,255,.3)}
+.selbar .btn.del{background:#dc2626;border-color:#dc2626;color:#fff}
 #tbar{position:fixed;left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:80;display:none;flex-direction:column;gap:8px}
 #tbar .tm{display:flex;align-items:center;gap:12px;background:#1c1511;color:#f6ebdc;padding:12px 16px;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:15px}
 #tbar .tm span{flex:1}
@@ -331,7 +339,7 @@ function retagView(){
 }
 
 /* ============ UI-Zustand ============ */
-let tab='rezepte',q='',tagF='',favF=false,sortF='neu',view=null;
+let tab='rezepte',q='',tagF='',favF=false,sortF='neu',view=null,selMode=false,sel=new Set();
 function toast(t){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.remove(),2400)}
 const alleTags=()=>[...new Set(S.rezepte.flatMap(r=>r.tags||[]))].sort((a,b)=>a.localeCompare(b));
 const ich=()=>localStorage.getItem(LSN)||'';
@@ -358,7 +366,8 @@ function render(){
   const open=S.einkauf.filter(x=>!x.done).length;
   $('#app').innerHTML=`
   <div class="wrap">${tab==='rezepte'?listView():tab==='einkauf'?shopView():moreView()}</div>
-  ${tab==='rezepte'?'<button class="fab" data-a="new" aria-label="Neues Rezept">+</button>':''}
+  ${tab==='rezepte'&&!selMode?'<button class="fab" data-a="new" aria-label="Neues Rezept">+</button>':''}
+  ${tab==='rezepte'&&selMode?`<div class="selbar"><span>${sel.size} ausgewählt</span><button class="btn sm" data-a="selall">Alle</button><button class="btn sm del" data-a="seldel"${sel.size?'':' disabled'}>Löschen</button></div>`:''}
   <nav class="tabs">
     <button data-a="tab" data-v="rezepte" class="${tab==='rezepte'?'on':''}">${ICON.book}Rezepte</button>
     <button data-a="tab" data-v="einkauf" class="${tab==='einkauf'?'on':''}">${ICON.cart}Einkauf${open?`<span class="badge">${open}</span>`:''}</button>
@@ -377,14 +386,14 @@ function filtered(){
 }
 function listView(){
   const rs=filtered(),tags=alleTags();
-  return `<header class="top"><h1>Unsere <em>Rezepte</em></h1><p>${S.rezepte.length} Rezept${S.rezepte.length===1?'':'e'} gesammelt</p></header>
+  return `<header class="top">${S.rezepte.length?`<button class="btn sm" data-a="selmode">${selMode?'Fertig':'Bearbeiten'}</button>`:''}<h1>Unsere <em>Rezepte</em></h1><p>${S.rezepte.length} Rezept${S.rezepte.length===1?'':'e'} gesammelt</p></header>
   <div class="search"><input id="q" type="search" placeholder="Suchen: Titel, Zutat, Tag …" value="${esc(q)}"></div>
   <div class="sortrow"><button class="btn" data-a="rand">🎲 Was kochen wir heute?</button>
     <select id="sort"><option value="neu"${sortF==='neu'?' selected':''}>Neueste</option><option value="beste"${sortF==='beste'?' selected':''}>Beste</option><option value="lange"${sortF==='lange'?' selected':''}>Lange nicht gekocht</option></select></div>
   ${tags.length||S.rezepte.some(r=>r.fav)?`<div class="chips"><span class="chip ${!tagF&&!favF?'on':''}" data-a="tag" data-v="">Alle</span><span class="chip ${favF?'on':''}" data-a="favf">♥ Favoriten</span>${tags.map(t=>`<span class="chip ${tagF===t?'on':''}" data-a="tag" data-v="${esc(t)}">${esc(t)}</span>`).join('')}</div>`:''}
-  ${rs.length?`<div class="grid">${rs.map(r=>`<div class="rc" data-a="open" data-v="${r.id}">
+  ${rs.length?`<div class="grid">${rs.map(r=>`<div class="rc${selMode&&sel.has(r.id)?' sel':''}" data-a="${selMode?'sel':'open'}" data-v="${r.id}">
     <div class="hero ${r.bild?'img':''}" style="${heroStyle(r)}">${r.bild?'':esc((r.titel||'?').trim()[0]?.toUpperCase()||'?')}</div>
-    <button class="heart ${r.fav?'on':''}" data-a="fav" data-v="${r.id}" aria-label="Favorit">${r.fav?'♥':'♡'}</button>
+    ${selMode?`<span class="selbox">${sel.has(r.id)?'✓':''}</span>`:`<button class="heart ${r.fav?'on':''}" data-a="fav" data-v="${r.id}" aria-label="Favorit">${r.fav?'♥':'♡'}</button>`}
     ${r.entwurf?'<span class="draft">Entwurf</span>':''}
     <div class="body"><h3>${esc(r.titel||'Ohne Titel')}</h3>
     <div class="meta">${avg(r)?`★ ${fmt(Math.round(avg(r)*10)/10)} · `:''}${(r.zutaten||[]).length?`${r.zutaten.length} Zutaten`:'noch leer'}${r.portionen?` · ${r.portionen} P.`:''}</div></div></div>`).join('')}</div>`
@@ -571,7 +580,11 @@ document.addEventListener('click',async e=>{
   const a=el.dataset.a,v=el.dataset.v;
   const r=view&&S.rezepte.find(x=>x.id===view.id);
   switch(a){
-    case 'tab':tab=v;break;
+    case 'tab':tab=v;selMode=false;sel.clear();break;
+    case 'selmode':selMode=!selMode;sel.clear();break;
+    case 'sel':sel.has(v)?sel.delete(v):sel.add(v);break;
+    case 'selall':{const ids=filtered().map(x=>x.id);ids.every(i=>sel.has(i))?sel.clear():ids.forEach(i=>sel.add(i));break}
+    case 'seldel':{if(!sel.size)return;if(!confirm(`${sel.size} Rezept${sel.size===1?'':'e'} wirklich löschen?`))return;const n=sel.size;[...sel].forEach(id=>del('rezepte',id));sel.clear();toast(`${n} gelöscht`);break}
     case 'tag':tagF=v;favF=false;break;
     case 'favf':favF=!favF;tagF='';break;
     case 'fav':{const x=S.rezepte.find(i=>i.id===v);if(x){x.fav=!x.fav;put('rezepte',x);toast(x.fav?'Zu Favoriten hinzugefügt':'Aus Favoriten entfernt')}break}
@@ -627,7 +640,7 @@ document.addEventListener('input',e=>{
 document.addEventListener('change',async e=>{
   if(e.target.id==='sort'){sortF=e.target.value;render()}
   if(e.target.id==='kiimg'){try{kiImage=await shrink(e.target.files[0]);$('#kistat').textContent='Screenshot bereit – auf «Ausfüllen» tippen.'}catch{}}
-  if(e.target.id==='foto'){try{view.bild=await shrink(e.target.files[0],560,.7);$('#fotoprev').style.backgroundImage=`url(${view.bild})`}catch{}}
+  if(e.target.id==='foto'){try{view.bild=await shrink(e.target.files[0],560,.7);$('#fotoprev').style.backgroundImage=`url(${view.bild})`}catch{toast('Foto konnte nicht gelesen werden')}}
   if(e.target.id==='file'){
     try{const d=JSON.parse(await e.target.files[0].text());
       COLS.forEach(c=>(d[c]||[]).forEach(x=>{if(!S[c].some(y=>y.id===x.id))put(c,x)}));
