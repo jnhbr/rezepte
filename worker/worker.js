@@ -11,17 +11,45 @@ const TAGS = [
 ];
 const KATEGORIEN = ['Obst & Gemüse', 'Milch & Eier', 'Fleisch & Fisch', 'Brot & Backwaren', 'Trockenwaren & Konserven', 'Gewürze, Öle & Saucen', 'Tiefkühl', 'Getränke', 'Sonstiges'];
 
-const SYSTEM = `Du extrahierst Kochrezepte für ein Schweizer Ehepaar. Antworte NUR mit einem JSON-Objekt, ohne Text davor oder danach:
-{"titel":string,"portionen":number,"zutaten":[string],"kategorien":[string],"schritte":[string],"tags":[string]}
+const TAGREGELN = (allowed) => `- tags: 2 bis 5 Stichworte, AUSSCHLIESSLICH aus dieser Liste (exakt so geschrieben): ${allowed.join(' | ')}.
+  Wähle immer die übergeordnete Kategorie, nie etwas Spezifisches: Wird z. B. ein Rezept mit Eierschwämmen oder anderen Pilzen vegetarisch gekocht, ist der Tag "Vegi", nicht "Pilze" oder "Eierschwämme". Einzelne Zutaten, Marken oder Hashtags des Autors werden nie zu Tags.
+- neuerTag: normalerweise null. Nur wenn wirklich KEIN Tag der Liste die Art des Gerichts abdeckt, schlage genau einen neuen, allgemeinen Oberbegriff vor (1-2 Wörter, keine Zutat, kein Eigenname).`;
+
+const systemFor = (allowed) => `Du extrahierst Kochrezepte für ein Schweizer Ehepaar. Antworte NUR mit einem JSON-Objekt, ohne Text davor oder danach:
+{"titel":string,"portionen":number,"zutaten":[string],"kategorien":[string],"schritte":[string],"tags":[string],"neuerTag":string|null}
 Regeln:
 - Deutsch, Schweizer Rechtschreibung (ss statt ß).
 - Zutaten: je ein String im Format "Menge Einheit Zutat", z. B. "200 g Mehl", "2 Eier", "1 EL Olivenöl". Metrische Einheiten (g, ml, dl, EL, TL). Ohne Mengenangabe nur "Salz". Zutatennamen in der Grundform ("Zwiebel", nicht "Zwiebeln"), ohne Klammerzusätze wie "(topping)".
 - kategorien: genau gleich viele Einträge wie zutaten, gleiche Reihenfolge. Jeder Eintrag ist einer dieser Supermarkt-Bereiche (exakt so geschrieben): ${KATEGORIEN.join(' | ')}.
 - Schritte: kurze, klare Anweisungen, ohne Nummerierung, ohne Hashtags und Werbung. Zeitangaben (z. B. "20 Minuten köcheln") unbedingt beibehalten.
-- tags: 2 bis 5 Stichworte, AUSSCHLIESSLICH aus dieser Liste (exakt so geschrieben): ${TAGS.join(' | ')}.
-  Wähle immer die übergeordnete Kategorie, nie etwas Spezifisches: Wird z. B. ein Rezept mit Eierschwämmen oder anderen Pilzen vegetarisch gekocht, ist der Tag "Vegi", nicht "Pilze" oder "Eierschwämme". Einzelne Zutaten, Marken oder Hashtags des Autors werden nie zu Tags.
+${TAGREGELN(allowed)}
 - portionen: Zahl; falls nicht angegeben, schätze sinnvoll (meist 2-4).
 - Erfinde nichts, was nicht im Material steht. Wenn kein Rezept erkennbar ist: {"fehler":"Kein Rezept erkannt"}.`;
+
+const systemRetag = (allowed) => `Du ordnest Kochrezepte in Kategorien ein. Du bekommst eine JSON-Liste mit id, titel, zutaten und tags (bisherige, oft zu spezifische oder doppelte Tags). Antworte NUR mit einem JSON-Objekt, ohne Text davor oder danach:
+{"ergebnisse":[{"id":string,"tags":[string],"neuerTag":string|null}]}
+Regeln:
+- Genau ein Eintrag pro Rezept, id unverändert übernehmen.
+${TAGREGELN(allowed)}
+- Die bisherigen Tags sind nur ein Hinweis; ordne anhand von Titel und Zutaten ein.`;
+
+// Erlaubte Tags = feste Liste + vom Nutzer freigegebene Zusatz-Tags
+function allowedTags(pool) {
+  const extra = (Array.isArray(pool) ? pool : []).map(t => String(t).trim()).filter(t => t && t.length <= 30).slice(0, 60);
+  const map = new Map();
+  [...TAGS, ...extra].forEach(t => map.set(t.toLowerCase(), t));
+  return map;
+}
+function cleanTags(tags, map) {
+  const out = [];
+  (Array.isArray(tags) ? tags : []).forEach(t => { const c = map.get(String(t).trim().toLowerCase()); if (c && !out.includes(c)) out.push(c); });
+  return out.slice(0, 5);
+}
+function cleanNeu(t, map) {
+  t = typeof t === 'string' ? t.trim() : '';
+  if (t.length < 2 || t.length > 30 || /[<>{}]/.test(t) || map.has(t.toLowerCase())) return '';
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -81,6 +109,27 @@ export default {
     try { b = await req.json(); } catch { return json({ fehler: 'Ungültige Anfrage' }, 400); }
     if (!env.ACCESS_CODE || b.code !== env.ACCESS_CODE) return json({ fehler: 'Zugangscode falsch' }, 401);
 
+    const tagMap = allowedTags(b.pool);
+    const allowed = [...tagMap.values()];
+
+    if (Array.isArray(b.retag)) {
+      const items = b.retag.slice(0, 15).map(x => ({ id: String(x.id), titel: String(x.titel || '').slice(0, 120), zutaten: (x.zutaten || []).slice(0, 25).map(z => String(z).slice(0, 80)), tags: (x.tags || []).slice(0, 10) }));
+      const rr = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model: MODEL, max_tokens: 3000, system: systemRetag(allowed), messages: [{ role: 'user', content: JSON.stringify(items) }] }),
+      });
+      if (!rr.ok) return json({ fehler: 'KI-Dienst nicht erreichbar (' + rr.status + ')' }, 502);
+      const dd = await rr.json();
+      const oo = (dd.content || []).map(c => c.text || '').join('');
+      try {
+        const parsed = JSON.parse(oo.slice(oo.indexOf('{'), oo.lastIndexOf('}') + 1));
+        const ids = new Set(items.map(i => i.id));
+        const ergebnisse = (parsed.ergebnisse || []).filter(e => ids.has(String(e.id))).map(e => ({ id: String(e.id), tags: cleanTags(e.tags, tagMap), neuerTag: cleanNeu(e.neuerTag, tagMap) }));
+        return json({ ergebnisse });
+      } catch { return json({ fehler: 'Antwort nicht lesbar' }, 502); }
+    }
+
     let text = (b.text || '').slice(0, 12000);
     let img = '';
     if (b.link) {
@@ -101,14 +150,15 @@ export default {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 2000, system: SYSTEM, messages: [{ role: 'user', content }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: 2000, system: systemFor(allowed), messages: [{ role: 'user', content }] }),
     });
     if (!r.ok) return json({ fehler: 'KI-Dienst nicht erreichbar (' + r.status + ')' }, 502);
     const d = await r.json();
     const out = (d.content || []).map(c => c.text || '').join('');
     let rec;
     try { rec = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)); } catch { return json({ fehler: 'Antwort nicht lesbar' }, 502); }
-    if (Array.isArray(rec.tags)) rec.tags = rec.tags.filter(t => TAGS.includes(t));
+    rec.tags = cleanTags(rec.tags, tagMap);
+    rec.neuerTag = cleanNeu(rec.neuerTag, tagMap);
     if (img) rec.bild = await imageDataUrl(img);
     return json(rec);
   },

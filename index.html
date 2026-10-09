@@ -215,12 +215,15 @@ const KW=[
   ['Milch & Eier',/milch|rahm|butter|käse|mozzarella|parmesan|feta|halloumi|joghurt|quark|(^|\s)eier?(\s|$)|^ei$|eigelb|eiweiss|mascarpone|ricotta|crème|schmand|tofu|tempeh|burrata/],
   ['Obst & Gemüse',/zwiebel|knoblauch|tomate|gurke|salat|karotte|rüebli|möhre|kartoffel|paprika|peperoni|zucchini|aubergine|pilz|champignon|eierschwamm|spinat|lauch|brokkoli|blumenkohl|kohl|fenchel|sellerie|kürbis|ingwer|zitrone|limette|orange|apfel|birne|banane|beere|avocado|mango|kräuter|petersilie|basilikum|koriander|schnittlauch|dill|minze|rucola|mais|erbse|bohne|chili|rande|süsskartoffel|trauben|ananas|kiwi|pfirsich|gemüse|obst|salbei|knoblauchzehe/],
 ];
+const BASE_TAGS=['Pasta','Reis','Suppe','Salat','Auflauf','Eintopf','Curry','Pizza & Flammkuchen','Burger & Sandwich','Bowl','Pfanne','Ofengericht','Grill','Brot & Gebäck','Dessert','Kuchen','Frühstück','Apéro & Snacks','Beilage','Sauce & Dip','Getränk','Vegi','Vegan','Fleisch','Geflügel','Fisch & Meeresfrüchte','Asiatisch','Italienisch','Mexikanisch','Orientalisch','Schweizerisch','Mediterran','Amerikanisch','Indisch','Schnell','Gäste','Meal Prep','Gesund','Comfort Food'];
+const isBase=t=>BASE_TAGS.some(b=>b.toLowerCase()===t.toLowerCase());
+const poolNames=()=>S.tagpool.map(t=>t.name);
 function guessCat(name){const n=String(name||'').toLowerCase();for(const [c,re] of KW)if(re.test(n))return c;return 'Sonstiges'}
 
 /* ============ Daten & Sync ============ */
 const LS='rezepte-v1',LSC='rezepte-code',LSN='rezepte-ich';
-const COLS=['rezepte','einkauf','vorrat'];
-let S={rezepte:[],einkauf:[],vorrat:[]};
+const COLS=['rezepte','einkauf','vorrat','tagpool'];
+let S={rezepte:[],einkauf:[],vorrat:[],tagpool:[]};
 try{S=Object.assign(S,JSON.parse(localStorage.getItem(LS)||'{}'))}catch{}
 const save=()=>{try{localStorage.setItem(LS,JSON.stringify(S))}catch{toast('Speicher voll – bitte Rezepte sichern')}};
 let fb={db:null,on:false,unsub:[]};
@@ -276,6 +279,55 @@ function cleanTags(){
     const n=dedupeTags(r.tags);
     if(JSON.stringify(n)!==JSON.stringify(r.tags||[])){r.tags=n;put('rezepte',r)}
   });
+}
+
+function addPool(name){
+  name=cap1(String(name).trim());
+  if(!name||isBase(name)||S.tagpool.some(t=>t.name.toLowerCase()===name.toLowerCase()))return;
+  put('tagpool',{id:uid(),name});
+}
+function renameTag(old,nw){
+  nw=cap1(String(nw).trim());if(!nw||nw.toLowerCase()===old.toLowerCase()&&nw===old)return;
+  const lo=old.toLowerCase();
+  S.rezepte.forEach(r=>{if((r.tags||[]).some(t=>t.toLowerCase()===lo)){r.tags=dedupeTags(r.tags.map(t=>t.toLowerCase()===lo?nw:t));put('rezepte',r)}});
+  S.tagpool.filter(t=>t.name.toLowerCase()===lo).forEach(t=>del('tagpool',t.id));
+  addPool(nw);
+}
+function deleteTag(tag){
+  const lo=tag.toLowerCase();
+  S.rezepte.forEach(r=>{if((r.tags||[]).some(t=>t.toLowerCase()===lo)){r.tags=r.tags.filter(t=>t.toLowerCase()!==lo);put('rezepte',r)}});
+  S.tagpool.filter(t=>t.name.toLowerCase()===lo).forEach(t=>del('tagpool',t.id));
+}
+async function retagAll(){
+  const code=localStorage.getItem(LSC);
+  if(!code||!window.RECIPE_WORKER){toast('Dafür braucht es den Zugangscode und den KI-Dienst');return}
+  const list=S.rezepte.filter(r=>!r.entwurf&&((r.zutaten||[]).length||(r.schritte||[]).length));
+  if(!list.length){toast('Keine Rezepte zum Einordnen');return}
+  if(!confirm(`${list.length} Rezepte von der KI einordnen lassen? Kostet ungefähr ${Math.max(1,Math.round(list.length*.4))} Rappen. Du kannst das Ergebnis danach prüfen.`))return;
+  const props=[];
+  try{
+    for(let i=0;i<list.length;i+=12){
+      toast(`Ordne ein … ${Math.min(i+12,list.length)}/${list.length}`);
+      const batch=list.slice(i,i+12).map(r=>({id:r.id,titel:r.titel,zutaten:(r.zutaten||[]).slice(0,25).map(zutatText),tags:r.tags||[]}));
+      const res=await fetch(window.RECIPE_WORKER,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,retag:batch,pool:poolNames()})});
+      const d=await res.json();
+      if(d.fehler){toast(d.fehler);return}
+      (d.ergebnisse||[]).forEach(e=>{
+        const r=S.rezepte.find(x=>x.id===e.id);if(!r)return;
+        const alt=r.tags||[],neu=dedupeTags(e.tags||[]);
+        const gleich=JSON.stringify([...alt].sort())===JSON.stringify([...neu].sort())&&!e.neuerTag;
+        props.push({id:r.id,titel:r.titel,alt,neu,neuerTag:e.neuerTag||'',on:!gleich,gleich});
+      });
+    }
+  }catch{toast('Keine Verbindung zum KI-Dienst');return}
+  view={type:'retag',id:'x',props};render();
+}
+function retagView(){
+  const rows=view.props;
+  return `<div class="sheet"><div class="bar"><button class="btn" data-a="close">Abbrechen</button><button class="btn pri" data-a="rapply">Übernehmen</button></div>
+  <div class="wrap" style="padding-bottom:60px"><h2 style="font-size:26px;margin:6px 0 4px">Vorschlag der KI</h2>
+  <div class="hint">Haken setzen = übernehmen. Unveränderte Rezepte sind schon abgewählt.</div>
+  <ul class="sl">${rows.map(p=>`<li class="${p.on?'done':''}" data-a="rtoggle" data-v="${p.id}" style="align-items:flex-start"><span class="cb" style="margin-top:2px">${p.on?'✓':''}</span><span class="t" style="text-decoration:none;color:var(--ink)"><b>${esc(p.titel)}</b><span class="src">alt: ${esc(p.alt.join(', ')||'–')}</span><span class="src" style="color:var(--acc-d)">neu: ${esc(p.neu.join(', ')||'–')}${p.neuerTag?` · neuer Tag: ${esc(p.neuerTag)}`:''}</span></span></li>`).join('')}</ul></div></div>`;
 }
 
 /* ============ UI-Zustand ============ */
@@ -360,6 +412,12 @@ function moreView(){
   <form class="shop-add" data-a="vadd"><input class="in" id="vin" placeholder="z. B. Salz" autocomplete="off"><button class="btn pri">+</button></form>
   <div class="vchips">${S.vorrat.map(v=>`<span>${esc(v.name)}<b data-a="vdel" data-v="${v.id}">✕</b></span>`).join('')}</div>
   <div class="row"><button class="btn sm" data-a="vbasics">Basics hinzufügen</button></div></div>
+  <div class="sec"><h2>Tags verwalten</h2>
+  <div class="hint">Die KI wählt nur aus dieser Liste. Eigene Tags lassen sich umbenennen oder mit einem anderen zusammenführen (einfach dessen Namen eingeben).</div>
+  ${(()=>{const cnt={};S.rezepte.forEach(r=>(r.tags||[]).forEach(t=>cnt[t]=(cnt[t]||0)+1));S.tagpool.forEach(t=>{if(!(t.name in cnt))cnt[t.name]=0});
+    const names=Object.keys(cnt).sort((a,b)=>a.localeCompare(b));
+    return names.length?`<ul class="sl">${names.map(t=>`<li style="cursor:default"><span class="t" style="flex:1">${esc(t)} <span class="src" style="display:inline">· ${cnt[t]}</span></span>${isBase(t)?'<span class="src">Standard</span>':`<button class="btn sm" data-a="tagren" data-v="${esc(t)}">Umbenennen</button><button class="btn sm danger" data-a="tagdel" data-v="${esc(t)}">Löschen</button>`}</li>`).join('')}</ul>`:'<div class="hint">Noch keine Tags.</div>'})()}
+  <div class="row"><button class="btn" data-a="retag">✨ Alle Rezepte von der KI einordnen</button></div></div>
   <div class="sec"><h2>Sync mit deiner Partnerin</h2>
   <div class="sync"><span class="dot ${fb.on?'on':''}"></span>${!cfg?'Noch nicht eingerichtet (läuft nur auf diesem Handy)':fb.on?'Verbunden':code?'Verbinde …':'Zugangscode fehlt'}</div>
   <label class="f">Gemeinsamer Zugangscode</label>
@@ -372,6 +430,7 @@ function moreView(){
 }
 function sheet(){
   const r=S.rezepte.find(x=>x.id===view.id);
+  if(view.type==='retag')return retagView();
   if(view.type==='edit')return editView(r);
   if(!r)return '';
   return view.type==='cook'?cookView(r):detailView(r);
@@ -434,7 +493,7 @@ function editView(r){
     ${window.RECIPE_WORKER?`<div class="sec" style="margin-top:16px"><div class="note"><b>✨ Mit KI ausfüllen</b>
       <textarea class="in" id="kitext" rows="3" placeholder="Text unter dem Reel hier einfügen …" style="margin-top:10px">${esc(view.caption||'')}</textarea>
       <div class="row" style="margin-top:10px"><button type="button" class="btn sm" data-a="pickimg">Screenshot wählen</button><button type="button" class="btn pri sm" data-a="ki">Ausfüllen</button></div>
-      <input type="file" id="kiimg" accept="image/*" hidden><div class="hint" id="kistat">${r.link?'Ohne Text versuche ich, ihn vom Link zu holen.':''}</div></div></div>`:''}
+      <input type="file" id="kiimg" accept="image/*" hidden><div class="hint" id="kistat">${r.link?'Ohne Text versuche ich, ihn vom Link zu holen.':''}</div><div id="kisug"></div></div></div>`:''}
     <label class="f">Foto</label>
     <div class="fotoprev" id="fotoprev" style="${bild?`background-image:url(${bild})`:''}"></div>
     <div class="row" style="margin-top:8px"><button type="button" class="btn sm" data-a="pickfoto">Foto wählen</button><button type="button" class="btn sm" data-a="rmfoto">Entfernen</button></div>
@@ -536,6 +595,12 @@ document.addEventListener('click',async e=>{
     case 'check':{const x=S.einkauf.find(i=>i.id===v);if(x){x.done=!x.done;put('einkauf',x)}break}
     case 'cleardone':S.einkauf.filter(x=>x.done).forEach(x=>del('einkauf',x.id));break;
     case 'savename':{const n=$('#name').value.trim();n?localStorage.setItem(LSN,n):localStorage.removeItem(LSN);toast('Gespeichert');return}
+    case 'tagren':{const n=prompt(`Neuer Name für «${v}»? Gibt es den Namen schon, werden beide zusammengeführt.`,v);if(!n)return;renameTag(v,n);break}
+    case 'tagdel':if(confirm(`Tag «${v}» von allen Rezepten entfernen?`)){deleteTag(v)}else return;break;
+    case 'retag':retagAll();return;
+    case 'rtoggle':{const p=view.props.find(x=>x.id===v);if(p)p.on=!p.on;break}
+    case 'rapply':{let n=0;view.props.filter(p=>p.on).forEach(p=>{const r=S.rezepte.find(x=>x.id===p.id);if(!r)return;r.tags=dedupeTags([...p.neu,...(p.neuerTag?[p.neuerTag]:[])]);if(p.neuerTag)addPool(p.neuerTag);put('rezepte',r);n++});toast(`${n} Rezepte aktualisiert`);view=null;break}
+    case 'acceptTag':{addPool(v);const f=$('form[data-a="saveform"]');f.tags.value=dedupeTags([...f.tags.value.split(','),v]).join(', ');$('#kisug').innerHTML='';return}
     case 'vdel':del('vorrat',v);break;
     case 'vbasics':['Salz','Pfeffer','Zucker','Mehl','Olivenöl','Öl','Essig','Butter','Wasser'].forEach(n=>{const k=normName(n);if(!S.vorrat.some(x=>x.key===k))put('vorrat',{id:uid(),name:n,key:k})});break;
     case 'savecode':{const c=$('#code').value.trim();c?localStorage.setItem(LSC,c):localStorage.removeItem(LSC);toast(window.FIREBASE_CONFIG?'Code gespeichert':'Code gespeichert – Sync braucht noch die Firebase-Einrichtung');initSync();return}
@@ -581,7 +646,7 @@ async function kiFill(){
   if(!text&&!kiImage&&!link){st.textContent='Füge Text ein, wähle einen Screenshot oder trage einen Link ein.';return}
   st.textContent='Lese Rezept … (ca. 10 Sekunden)';
   try{
-    const res=await fetch(window.RECIPE_WORKER,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,text,image:kiImage,link})});
+    const res=await fetch(window.RECIPE_WORKER,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,text,image:kiImage,link,pool:poolNames()})});
     const d=await res.json();
     if(d.fehler){st.textContent=d.fehler;return}
     f.titel.value=d.titel||f.titel.value;
@@ -594,6 +659,7 @@ async function kiFill(){
     zl.forEach((z,i)=>{const p=parseZutat(z);if(p&&d.kategorien&&CATS.includes(d.kategorien[i]))view.kat[normName(p.n)]=d.kategorien[i]});
     const hatBild='bild' in view?view.bild:(S.rezepte.find(x=>x.id===view.id)||{}).bild;
     if(d.bild&&!hatBild){try{view.bild=await shrink(d.bild,560,.7);$('#fotoprev').style.backgroundImage=`url(${view.bild})`}catch{}}
+    $('#kisug').innerHTML=d.neuerTag?`<div class="hint" style="margin-top:8px">Kein passender Tag in der Liste. Neuen Tag anlegen?</div><button type="button" class="btn sm" style="margin-top:6px" data-a="acceptTag" data-v="${esc(d.neuerTag)}">+ ${esc(d.neuerTag)}</button>`:'';
     st.textContent='Fertig – bitte kurz prüfen und speichern.';
   }catch{st.textContent='Keine Verbindung zum KI-Dienst.'}
 }
