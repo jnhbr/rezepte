@@ -68,16 +68,36 @@ function captionFromEmbed(html) {
   return decode(t).replace(/View all \d+ comments?/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-// Holt die Embed-Seite eines Instagram-Links: Text und Vorschaubild
-async function fromInstagram(link) {
+// Shortcode aus Instagram-Link; Share-Links (instagram.com/share/reel/…) werden über die Weiterleitung aufgelöst
+const SC = /instagram\.com\/(?:[^/?#]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i;
+async function shortcode(link) {
+  if (!/\/share\//i.test(link)) { const m = link.match(SC); if (m) return m[1]; }
   try {
-    const id = link.match(/instagram\.com\/(?:[^/]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i);
-    if (!id) return { caption: '', img: '' };
-    const r = await fetch(`https://www.instagram.com/p/${id[1]}/embed/captioned/`, { headers: { 'user-agent': UA } });
-    const h = await r.text();
-    const im = h.match(/<img[^>]+class="EmbeddedMediaImage"[^>]+src="([^"]+)"/i);
-    return { caption: captionFromEmbed(h), img: im ? decode(im[1]) : '' };
-  } catch { return { caption: '', img: '' }; }
+    const r = await fetch(link, { redirect: 'follow', headers: { 'user-agent': UA } });
+    const m = decodeURIComponent(r.url).match(SC);
+    if (m && !/\/share\//i.test(m[0])) return m[1];
+  } catch { /* weiter */ }
+  return '';
+}
+
+// Holt die Embed-Seite eines Instagram-Links: Text, Vorschaubild und Diagnose
+async function fromInstagram(link) {
+  const dbg = [];
+  try {
+    const id = await shortcode(link);
+    if (!id) return { caption: '', img: '', dbg: 'Link nicht erkannt' };
+    for (const path of [`p/${id}/embed/captioned/`, `reel/${id}/embed/captioned/`]) {
+      const r = await fetch(`https://www.instagram.com/${path}`, { headers: { 'user-agent': UA, 'accept-language': 'de-CH,de;q=0.9' } });
+      const h = await r.text();
+      const caption = captionFromEmbed(h);
+      dbg.push(`${r.status}/${h.length}B/${caption ? 'Text' : /login|checkpoint/i.test(h.slice(0, 4000)) ? 'Login-Sperre' : 'kein Text'}`);
+      if (caption) {
+        const im = h.match(/<img[^>]+class="EmbeddedMediaImage"[^>]+src="([^"]+)"/i);
+        return { caption, img: im ? decode(im[1]) : '', dbg: dbg.join(', ') };
+      }
+    }
+  } catch (e) { dbg.push('Fehler: ' + String(e).slice(0, 60)); }
+  return { caption: '', img: '', dbg: dbg.join(', ') };
 }
 
 async function captionFallback(link) {
@@ -131,13 +151,13 @@ export default {
     }
 
     let text = (b.text || '').slice(0, 12000);
-    let img = '';
+    let img = '', dbg = '';
     if (b.link) {
       const ig = await fromInstagram(b.link);
-      img = ig.img;
+      img = ig.img; dbg = ig.dbg;
       if (!text && !b.image) text = ig.caption || (await captionFallback(b.link));
     }
-    if (!text && !b.image) return json({ fehler: 'Von diesem Link konnte kein Text geladen werden. Bitte Text oder Screenshot einfügen.' }, 422);
+    if (!text && !b.image) return json({ fehler: `Instagram gibt den Text nicht heraus (${dbg || 'kein Instagram-Link'}). Bitte Text oder Screenshot einfügen.` }, 422);
 
     const content = [];
     if (b.image) {
