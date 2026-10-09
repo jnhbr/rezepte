@@ -100,6 +100,53 @@ async function fromInstagram(link) {
   return { caption: '', img: '', dbg: dbg.join(', ') };
 }
 
+// ---- Normale Rezeptseiten: schema.org-Rezept (JSON-LD) lesen, sonst Seitentext ----
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+function ldRecipe(html) {
+  const out = [];
+  const collect = n => {
+    if (Array.isArray(n)) return n.forEach(collect);
+    if (!n || typeof n !== 'object') return;
+    const t = n['@type'];
+    if ((Array.isArray(t) ? t : [t]).includes('Recipe')) out.push(n);
+    if (n['@graph']) collect(n['@graph']);
+  };
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html))) { try { collect(JSON.parse(m[1].trim())); } catch { /* weiter */ } }
+  return out[0] || null;
+}
+const flatSteps = x => {
+  if (typeof x === 'string') return x.split(/\n+/);
+  if (Array.isArray(x)) return x.flatMap(flatSteps);
+  if (x && typeof x === 'object') return x.itemListElement ? flatSteps(x.itemListElement) : [x.text || x.name || ''];
+  return [];
+};
+const firstImage = i => (typeof i === 'string' ? i : Array.isArray(i) ? firstImage(i[0]) : i && typeof i === 'object' ? i.url || '' : '');
+function recipeToText(r) {
+  const yieldTxt = Array.isArray(r.recipeYield) ? r.recipeYield.join(' / ') : r.recipeYield || '';
+  return [
+    `Titel: ${decode(String(r.name || ''))}`,
+    yieldTxt ? `Portionen: ${yieldTxt}` : '',
+    r.description ? `Beschreibung: ${decode(String(r.description)).slice(0, 400)}` : '',
+    'Zutaten:\n' + (r.recipeIngredient || r.ingredients || []).map(i => '- ' + decode(String(i))).join('\n'),
+    'Zubereitung:\n' + flatSteps(r.recipeInstructions).map(t => decode(String(t)).trim()).filter(Boolean).map((t, i) => `${i + 1}. ${t}`).join('\n'),
+  ].filter(Boolean).join('\n');
+}
+async function fromWebpage(link) {
+  try {
+    const r = await fetch(link, { redirect: 'follow', headers: { 'user-agent': BROWSER_UA, 'accept-language': 'de-CH,de;q=0.9,en;q=0.7', accept: 'text/html,application/xhtml+xml' } });
+    const h = await r.text();
+    const rec = ldRecipe(h);
+    const og = (p) => { const m = h.match(new RegExp(`<meta[^>]+(?:property|name)=["']${p}["'][^>]+content=["']([^"']*)["']`, 'i')) || h.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${p}["']`, 'i')); return m ? decode(m[1]) : ''; };
+    const img = (rec && firstImage(rec.image)) || og('og:image');
+    if (rec) return { text: recipeToText(rec), img, dbg: `${r.status}/Rezept-Daten` };
+    const body = h.replace(/<(script|style|noscript|nav|footer|header|svg)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ');
+    const text = (`Seitentitel: ${og('og:title')}\nBeschreibung: ${og('og:description')}\n` + decode(body).replace(/\s+/g, ' ')).slice(0, 9000);
+    return { text, img, dbg: `${r.status}/${h.length}B/nur Seitentext` };
+  } catch (e) { return { text: '', img: '', dbg: 'Fehler: ' + String(e).slice(0, 60) }; }
+}
+
 async function captionFallback(link) {
   try {
     const r = await fetch(link, { headers: { 'user-agent': 'facebookexternalhit/1.1' } });
@@ -114,7 +161,7 @@ async function imageDataUrl(url) {
     const r = await fetch(url, { headers: { 'user-agent': UA } });
     if (!r.ok) return '';
     const buf = new Uint8Array(await r.arrayBuffer());
-    if (buf.length > 700000) return '';
+    if (buf.length > 2500000) return '';
     let bin = '';
     for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
     return `data:${r.headers.get('content-type') || 'image/jpeg'};base64,${btoa(bin)}`;
@@ -153,11 +200,19 @@ export default {
     let text = (b.text || '').slice(0, 12000);
     let img = '', dbg = '';
     if (b.link) {
-      const ig = await fromInstagram(b.link);
-      img = ig.img; dbg = ig.dbg;
-      if (!text && !b.image) text = ig.caption || (await captionFallback(b.link));
+      if (/instagram\.com/i.test(b.link)) {
+        const ig = await fromInstagram(b.link);
+        img = ig.img; dbg = ig.dbg;
+        if (!text && !b.image) text = ig.caption || (await captionFallback(b.link));
+        if (!text && !b.image) return json({ fehler: `Instagram gibt den Text nicht heraus (${dbg}). Bitte Text oder Screenshot einfügen.` }, 422);
+      } else if (/^https?:\/\//i.test(b.link)) {
+        const wp = await fromWebpage(b.link);
+        img = wp.img; dbg = wp.dbg;
+        if (!text && !b.image) text = wp.text;
+        if (!text && !b.image) return json({ fehler: `Von dieser Seite konnte kein Rezept geladen werden (${dbg}). Bitte Text oder Screenshot einfügen.` }, 422);
+      }
     }
-    if (!text && !b.image) return json({ fehler: `Instagram gibt den Text nicht heraus (${dbg || 'kein Instagram-Link'}). Bitte Text oder Screenshot einfügen.` }, 422);
+    if (!text && !b.image) return json({ fehler: 'Bitte Text einfügen, einen Screenshot wählen oder einen Link eintragen.' }, 422);
 
     const content = [];
     if (b.image) {

@@ -131,6 +131,12 @@ header.top .btn.sm{float:right;margin-top:8px}
 .selbar span{flex:1;font-size:15px}
 .selbar .btn{background:transparent;color:var(--bg);border-color:rgba(255,255,255,.3)}
 .selbar .btn.del{background:#dc2626;border-color:#dc2626;color:#fff}
+@media(min-width:900px){.wrap{max-width:980px}.grid{grid-template-columns:repeat(4,1fr)}.sheet .wrap{max-width:700px}.rc .hero{height:120px}}
+.zut li.zc{cursor:pointer}
+.zut li.got span{text-decoration:line-through;opacity:.4}
+.glab{flex:none;align-self:center;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--mute);margin:0 4px 0 10px}
+.vbtn.on{background:var(--acc)!important;border-color:var(--acc)!important;color:#fff!important}
+.cook .hint{margin:-8px 0 14px}
 #tbar{position:fixed;left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:80;display:none;flex-direction:column;gap:8px}
 #tbar .tm{display:flex;align-items:center;gap:12px;background:#1c1511;color:#f6ebdc;padding:12px 16px;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:15px}
 #tbar .tm span{flex:1}
@@ -225,6 +231,7 @@ const KW=[
   ['Obst & Gemüse',/zwiebel|knoblauch|tomate|gurke|salat|karotte|rüebli|möhre|kartoffel|paprika|peperoni|zucchini|aubergine|pilz|champignon|eierschwamm|spinat|lauch|brokkoli|blumenkohl|kohl|fenchel|sellerie|kürbis|ingwer|zitrone|limette|orange|apfel|birne|banane|beere|avocado|mango|kräuter|petersilie|basilikum|koriander|schnittlauch|dill|minze|rucola|mais|erbse|bohne|chili|rande|süsskartoffel|trauben|ananas|kiwi|pfirsich|gemüse|obst|salbei|knoblauchzehe/],
 ];
 const BASE_TAGS=['Pasta','Reis','Suppe','Salat','Auflauf','Eintopf','Curry','Pizza & Flammkuchen','Burger & Sandwich','Bowl','Pfanne','Ofengericht','Grill','Brot & Gebäck','Dessert','Kuchen','Frühstück','Apéro & Snacks','Beilage','Sauce & Dip','Getränk','Vegi','Vegan','Fleisch','Geflügel','Fisch & Meeresfrüchte','Asiatisch','Italienisch','Mexikanisch','Orientalisch','Schweizerisch','Mediterran','Amerikanisch','Indisch','Schnell','Gäste','Meal Prep','Gesund','Comfort Food'];
+const GROUPS=[['Gericht',BASE_TAGS.slice(0,21)],['Ernährung',BASE_TAGS.slice(21,26)],['Küche',BASE_TAGS.slice(26,34)],['Eigenschaft',BASE_TAGS.slice(34)]];
 const isBase=t=>BASE_TAGS.some(b=>b.toLowerCase()===t.toLowerCase());
 const poolNames=()=>S.tagpool.map(t=>t.name);
 function guessCat(name){const n=String(name||'').toLowerCase();for(const [c,re] of KW)if(re.test(n))return c;return 'Sonstiges'}
@@ -263,6 +270,7 @@ async function initSync(){
       },e=>{fb.on=false;console.warn(e);renderSafe()}));
     }
     fb.on=true;
+    setTimeout(autoBackup,8000);
   }catch(e){console.warn('Sync nicht verfügbar',e);fb.on=false}
   renderSafe();
 }
@@ -363,6 +371,7 @@ const ICON={
 function renderSafe(){if(view&&view.type==='edit')return;render()}
 let lastKey='';
 function render(){
+  const prevTop=$('.sheet')?$('.sheet').scrollTop:0;
   const key=view?view.type+view.id:'';const fresh=key!==lastKey;lastKey=key;document.body.classList.toggle('lock',!!view);
   const open=S.einkauf.filter(x=>!x.done).length;
   $('#app').innerHTML=`
@@ -376,6 +385,7 @@ function render(){
   </nav>
   ${view?sheet():''}`;
   if(fresh&&view){const sh=$('.sheet');if(sh)sh.classList.add('in')}
+  if(!fresh&&view&&!view.jump){const sh=$('.sheet');if(sh)sh.scrollTop=prevTop}
   if(view&&view.type==='cook'&&view.jump){view.jump=false;const c=$('.sheet li.cur');if(c)c.scrollIntoView({block:'center'})}
 }
 function filtered(){
@@ -392,7 +402,9 @@ function listView(){
   <div class="search"><input id="q" type="search" placeholder="Suchen: Titel, Zutat, Tag …" value="${esc(q)}"></div>
   <div class="sortrow"><button class="btn" data-a="rand">🎲 Was kochen wir heute?</button>
     <select id="sort"><option value="neu"${sortF==='neu'?' selected':''}>Neueste</option><option value="beste"${sortF==='beste'?' selected':''}>Beste</option><option value="lange"${sortF==='lange'?' selected':''}>Lange nicht gekocht</option></select></div>
-  ${tags.length||S.rezepte.some(r=>r.fav)?`<div class="chips"><span class="chip ${!tagF&&!favF?'on':''}" data-a="tag" data-v="">Alle</span><span class="chip ${favF?'on':''}" data-a="favf">♥ Favoriten</span>${tags.map(t=>`<span class="chip ${tagF===t?'on':''}" data-a="tag" data-v="${esc(t)}">${esc(t)}</span>`).join('')}</div>`:''}
+  ${tags.length||S.rezepte.some(r=>r.fav)?`<div class="chips"><span class="chip ${!tagF&&!favF?'on':''}" data-a="tag" data-v="">Alle</span><span class="chip ${favF?'on':''}" data-a="favf">♥ Favoriten</span>${(()=>{const chip=t=>`<span class="chip ${tagF===t?'on':''}" data-a="tag" data-v="${esc(t)}">${esc(t)}</span>`;const used=new Set();let h='';
+      GROUPS.forEach(([g,list])=>{const p=tags.filter(t=>list.some(b=>b.toLowerCase()===t.toLowerCase()));p.forEach(t=>used.add(t));if(p.length)h+=`<span class="glab">${g}</span>`+p.map(chip).join('')});
+      const rest=tags.filter(t=>!used.has(t));if(rest.length)h+=`<span class="glab">Weitere</span>`+rest.map(chip).join('');return h})()}</div>`:''}
   ${rs.length?`<div class="grid">${rs.map(r=>`<div class="rc${selMode&&sel.has(r.id)?' sel':''}" data-a="${selMode?'sel':'open'}" data-v="${r.id}">
     <div class="hero ${r.bild?'img':''}" style="${heroStyle(r)}">${r.bild?'':esc((r.titel||'?').trim()[0]?.toUpperCase()||'?')}</div>
     ${selMode?`<span class="selbox">${sel.has(r.id)?'✓':''}</span>`:`<button class="heart ${r.fav?'on':''}" data-a="fav" data-v="${r.id}" aria-label="Favorit">${r.fav?'♥':'♡'}</button>`}
@@ -436,7 +448,10 @@ function moreView(){
   <div class="hint">Auf beiden Handys denselben Code eingeben. Wer den Code kennt, sieht die Rezepte – also lang und nicht erratbar wählen.</div>
   <div class="row"><button class="btn pri" data-a="savecode">Speichern</button></div></div>
   <div class="sec"><h2>Sicherung</h2>
-  <div class="row" style="margin-top:0"><button class="btn" data-a="export">Rezepte exportieren</button><button class="btn" data-a="import">Importieren</button></div>
+  <div class="hint">Automatisch wird einmal pro Woche eine Kopie (ohne Fotos) in der Cloud abgelegt, die letzten 4 bleiben erhalten.</div>
+  <div class="row" style="margin-top:10px"><button class="btn" data-a="bkmake">Jetzt in der Cloud sichern</button><button class="btn" data-a="bklist">Cloud-Sicherungen</button></div>
+  ${bkList?(bkList.length?`<ul class="sl">${bkList.map(b=>`<li style="cursor:default"><span class="t" style="flex:1">${esc(b.date)} <span class="src" style="display:inline">· ${b.count} Rezepte</span></span><button class="btn sm" data-a="bkrestore" data-v="${esc(b.date)}">Fehlende wiederherstellen</button></li>`).join('')}</ul>`:'<div class="hint">Noch keine Sicherung vorhanden.</div>'):''}
+  <div class="row"><button class="btn" data-a="export">Als Datei exportieren</button><button class="btn" data-a="import">Importieren</button></div>
   <input type="file" id="file" accept="application/json" hidden></div>`;
 }
 function sheet(){
@@ -486,11 +501,13 @@ function detailView(r){
   </div></div>`;
 }
 function cookView(r){
-  const cur=view.step||0;
-  return `<div class="sheet cook"><div class="bar"><button class="btn" data-a="uncook">‹ Fertig</button><span style="color:var(--mute);font-size:13px">Bildschirm bleibt an</span></div>
+  const cur=view.step||0,got=view.got||new Set(),p=view.portionen||r.portionen||1;
+  return `<div class="sheet cook"><div class="bar"><button class="btn" data-a="uncook">‹ Fertig</button><span style="display:flex;gap:8px"><button class="btn sm vbtn ${voiceOn?'on':''}" data-a="voice" aria-label="Sprachsteuerung">🎤</button><button class="btn sm vbtn ${speakOn?'on':''}" data-a="speak" aria-label="Vorlesen">🔊</button></span></div>
   <div class="wrap" style="padding-bottom:140px">
-    <h2 style="font-size:28px;margin:6px 0 16px">${esc(r.titel)}</h2>
-    <ul class="zut">${scaled(r).map(z=>`<li><span class="m">${esc([fmt(z.m),z.e].filter(Boolean).join(' '))}</span><span>${esc(z.n)}</span></li>`).join('')}</ul>
+    <h2 style="font-size:28px;margin:6px 0 10px">${esc(r.titel)}</h2>
+    <div class="hint">${voiceOn?'Sag: «weiter», «zurück», «wiederholen», «timer», «fertig»':'Am Laptop: Pfeiltasten ← →'} · Bildschirm bleibt an</div>
+    <div class="port"><button data-a="pm" data-v="-1">−</button><span><b>${p}</b> Portion${p===1?'':'en'}</span><button data-a="pm" data-v="1">+</button></div>
+    <ul class="zut">${scaled(r).map((z,i)=>`<li class="zc ${got.has(i)?'got':''}" data-a="zchk" data-v="${i}"><span class="m">${esc([fmt(z.m),z.e].filter(Boolean).join(' '))}</span><span>${esc(z.n)}</span></li>`).join('')}</ul>
     <div class="sec"><ol class="steps">${(r.schritte||[]).map((s,i)=>{const t=stepTime(s);const last=i===(r.schritte.length-1);return `<li class="${i===cur?'cur':''}" data-a="step" data-v="${i}"><span>${esc(s)}${t?`<br><button class="btn sm" style="margin-top:8px" data-a="timer" data-v="${i}">⏱ Timer ${t.label}</button>`:''}${i===cur?`<br><button class="btn pri nextbtn" data-a="${last?'uncook':'stepnext'}">${last?'Fertig ✓':'Nächster Schritt ›'}</button>`:''}</span></li>`}).join('')}</ol></div>
   </div></div>`;
 }
@@ -548,8 +565,52 @@ function addToShop(r){
   scaled(r).forEach(z=>{const res=addIng(z,r.titel,(r.kat||{})[normName(z.n)]);if(res==='vorrat')v++;else if(res!=='skip')n++});
   toast(`${n} Zutaten hinzugefügt${v?` · ${v} schon im Vorrat`:''}`);
 }
+/* ============ Cloud-Sicherung ============ */
+const BK_DAYS=7,BK_KEEP=4;
+let bkList=null;
+const bkPath=()=>{const p=dbPath();return p?`${p}/backups`:null};
+const bkStrip=(k,v)=>k==='bild'?undefined:v;
+async function makeBackup(manual){
+  if(!fb.db||!bkPath()){if(manual)toast('Dafür muss der Sync verbunden sein');return}
+  try{
+    const date=new Date().toISOString().slice(0,10),col=fb.db.collection(bkPath()),parts=[];
+    let size=0,chunk=[];
+    S.rezepte.forEach(r=>{const j=JSON.stringify(r,bkStrip);if(size+j.length>700000&&chunk.length){parts.push(chunk);chunk=[];size=0}chunk.push(JSON.parse(j));size+=j.length});
+    parts.push(chunk);
+    (await col.where('date','==',date).get()).forEach(d=>d.ref.delete());
+    for(let i=0;i<parts.length;i++){
+      const data=i===0?{einkauf:S.einkauf,vorrat:S.vorrat,tagpool:S.tagpool,rezepte:parts[i]}:{rezepte:parts[i]};
+      await col.doc(`${date}-${i+1}`).set({date,part:i+1,parts:parts.length,count:S.rezepte.length,data:JSON.stringify(data),created:Date.now()});
+    }
+    const all=await col.get(),dates=[...new Set(all.docs.map(d=>d.data().date))].sort().reverse(),drop=dates.slice(BK_KEEP);
+    all.docs.filter(d=>drop.includes(d.data().date)).forEach(d=>d.ref.delete());
+    if(manual)toast('Sicherung erstellt');
+  }catch(e){console.warn(e);if(manual)toast('Sicherung fehlgeschlagen')}
+}
+async function autoBackup(){
+  if(!fb.db||!bkPath()||!S.rezepte.length)return;
+  try{
+    const snap=await fb.db.collection(bkPath()).get(),dates=snap.docs.map(d=>d.data().date).sort(),last=dates[dates.length-1];
+    if(!last||(Date.now()-new Date(last))/864e5>=BK_DAYS)await makeBackup(false);
+  }catch(e){console.warn(e)}
+}
+async function loadBackups(){
+  if(!fb.db||!bkPath()){toast('Dafür muss der Sync verbunden sein');return}
+  const snap=await fb.db.collection(bkPath()).get(),m={};
+  snap.docs.forEach(d=>{const x=d.data();m[x.date]=x.count});
+  bkList=Object.keys(m).sort().reverse().map(date=>({date,count:m[date]}));render();
+}
+async function restoreBackup(date){
+  const snap=await fb.db.collection(bkPath()).where('date','==',date).get();let add=0;
+  snap.docs.forEach(d=>{const x=JSON.parse(d.data().data);COLS.forEach(c=>(x[c]||[]).forEach(it=>{if(!S[c].some(y=>y.id===it.id)){put(c,it);if(c==='rezepte')add++}}))});
+  toast(add?`${add} fehlende Rezepte wiederhergestellt`:'Nichts fehlt – alles ist schon da');render();
+}
+
 function saveForm(f){
   const d=new FormData(f),old=S.rezepte.find(x=>x.id===view.id);
+  const lk=linkKey(d.get('link'));
+  const dup=lk&&S.rezepte.find(x=>x.id!==view.id&&linkKey(x.link)===lk);
+  if(dup&&!confirm(`Ein Rezept mit diesem Link gibt es schon («${dup.titel}»). Trotzdem speichern?`))return false;
   const r=Object.assign(old||{id:uid()},{
     titel:d.get('titel').trim(),
     portionen:Math.max(1,+d.get('portionen')||2),
@@ -564,6 +625,48 @@ function saveForm(f){
   put('rezepte',r);
   view={type:'detail',id:r.id};
 }
+
+/* Kochmodus: Schritte, Sprache, Tastatur */
+let rec=null,voiceOn=false,speakOn=false,lastCmd=0;
+function say(t){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='de-DE';speechSynthesis.speak(u)}catch{}}
+function stepTo(i){
+  const r=S.rezepte.find(x=>x.id===(view&&view.id));if(!r||view.type!=='cook')return;
+  view.step=Math.max(0,Math.min(r.schritte.length-1,i));view.jump=true;render();
+  if(speakOn)say(r.schritte[view.step]);
+}
+function stopVoice(){voiceOn=false;try{if(rec)rec.stop()}catch{}rec=null}
+function startVoice(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){toast('Sprachsteuerung wird hier nicht unterstützt (Safari, Chrome oder Edge im Browser probieren)');return false}
+  rec=new SR();rec.lang='de-DE';rec.continuous=true;rec.interimResults=false;
+  rec.onresult=e=>voiceCmd(String(e.results[e.results.length-1][0].transcript||'').toLowerCase());
+  rec.onend=()=>{if(voiceOn&&view&&view.type==='cook'){try{rec.start()}catch{}}};
+  rec.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){stopVoice();toast('Mikrofon nicht erlaubt oder in der Home-Screen-App nicht verfügbar – im Browser öffnen');if(view)view.jump=true;render()}};
+  try{rec.start();voiceOn=true;return true}catch{return false}
+}
+function startStepTimer(r,i){
+  const t=stepTime(r.schritte[i]||'');if(!t){toast('In diesem Schritt steht keine Zeit');return}
+  try{audio=audio||new(window.AudioContext||window.webkitAudioContext)()}catch{}
+  timers.push({id:uid(),label:`${r.titel}: ${t.label}`,end:Date.now()+t.sec*1000});tickTimers();toast('Timer gestartet');
+}
+function leaveCook(){stopVoice();speakOn=false;try{speechSynthesis.cancel()}catch{}wake(false);view={type:'detail',id:view.id,portionen:view.portionen};render()}
+function voiceCmd(t){
+  const now=Date.now();if(now-lastCmd<1200)return;
+  const r=S.rezepte.find(x=>x.id===(view&&view.id));if(!r||view.type!=='cook')return;
+  const cur=view.step||0;
+  if(/weiter|nächst|naechst|next/.test(t)){lastCmd=now;stepTo(cur+1)}
+  else if(/zurück|zurueck|vorherig|vorig/.test(t)){lastCmd=now;stepTo(cur-1)}
+  else if(/wiederhol|nochmal|vorlesen|lies/.test(t)){lastCmd=now;say(r.schritte[cur])}
+  else if(/timer|stoppuhr/.test(t)){lastCmd=now;startStepTimer(r,cur)}
+  else if(/fertig|beenden|schluss/.test(t)){lastCmd=now;leaveCook()}
+}
+document.addEventListener('keydown',e=>{
+  if(!view||view.type!=='cook'||/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||''))return;
+  const cur=view.step||0;
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();stepTo(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();stepTo(cur-1)}
+  else if(e.key==='Escape'){leaveCook()}
+});
 
 /* Timer */
 let timers=[],audio=null;
@@ -596,11 +699,14 @@ document.addEventListener('click',async e=>{
     case 'edit':view={type:'edit',id:view.id};break;
     case 'pm':view.portionen=Math.max(1,(view.portionen||r.portionen||1)+ +v);break;
     case 'toshop':addToShop(r);break;
-    case 'cook':view={type:'cook',id:view.id,portionen:view.portionen,step:0};wake(true);break;
-    case 'uncook':wake(false);view={type:'detail',id:view.id,portionen:view.portionen};break;
-    case 'step':view.step=+v;view.jump=true;break;
-    case 'stepnext':view.step=Math.min((r.schritte||[]).length-1,(view.step||0)+1);view.jump=true;break;
-    case 'timer':{const t=stepTime(r.schritte[+v]);if(!t)return;try{audio=audio||new(window.AudioContext||window.webkitAudioContext)()}catch{}timers.push({id:uid(),label:`${r.titel}: ${t.label}`,end:Date.now()+t.sec*1000});tickTimers();toast('Timer gestartet');return}
+    case 'cook':view={type:'cook',id:view.id,portionen:view.portionen,step:0,got:new Set()};wake(true);break;
+    case 'uncook':leaveCook();return;
+    case 'zchk':{const g=view.got||(view.got=new Set());const k=+v;g.has(k)?g.delete(k):g.add(k);break}
+    case 'voice':if(voiceOn)stopVoice();else startVoice();view.jump=true;break;
+    case 'speak':speakOn=!speakOn;if(speakOn)say((r.schritte||[])[view.step||0]||'');else{try{speechSynthesis.cancel()}catch{}}view.jump=true;break;
+    case 'step':stepTo(+v);return;
+    case 'stepnext':stepTo((view.step||0)+1);return;
+    case 'timer':startStepTimer(r,+v);return;
     case 'tstop':timers=timers.filter(t=>t.id!==v);tickTimers();return;
     case 'star':{let me=ich();if(!me){me=(prompt('Wie heisst du? (damit eure Bewertungen getrennt bleiben)')||'').trim();if(!me)return;localStorage.setItem(LSN,me)}r.bew=r.bew||{};if(r.bew[me]===+v)delete r.bew[me];else r.bew[me]=+v;put('rezepte',r);break}
     case 'cooked':r.gek=(r.gek||[]).concat(Date.now());put('rezepte',r);toast('Eingetragen – guten Appetit!');break;
@@ -615,6 +721,9 @@ document.addEventListener('click',async e=>{
     case 'rtoggle':{const p=view.props.find(x=>x.id===v);if(p)p.on=!p.on;break}
     case 'rapply':{let n=0;view.props.filter(p=>p.on).forEach(p=>{const r=S.rezepte.find(x=>x.id===p.id);if(!r)return;r.tags=dedupeTags([...p.neu,...(p.neuerTag?[p.neuerTag]:[])]);if(p.neuerTag)addPool(p.neuerTag);put('rezepte',r);n++});toast(`${n} Rezepte aktualisiert`);view=null;break}
     case 'acceptTag':{addPool(v);const f=$('form[data-a="saveform"]');f.tags.value=dedupeTags([...f.tags.value.split(','),v]).join(', ');$('#kisug').innerHTML='';return}
+    case 'bkmake':makeBackup(true).then(()=>{bkList=null});return;
+    case 'bklist':loadBackups();return;
+    case 'bkrestore':if(confirm(`Fehlende Rezepte aus der Sicherung vom ${v} wiederherstellen? Vorhandenes bleibt unverändert, Fotos sind in der Sicherung nicht enthalten.`))restoreBackup(v);return;
     case 'vdel':del('vorrat',v);break;
     case 'vbasics':['Salz','Pfeffer','Zucker','Mehl','Olivenöl','Öl','Essig','Butter','Wasser'].forEach(n=>{const k=normName(n);if(!S.vorrat.some(x=>x.key===k))put('vorrat',{id:uid(),name:n,key:k})});break;
     case 'savecode':{const c=$('#code').value.trim();c?localStorage.setItem(LSC,c):localStorage.removeItem(LSC);toast(window.FIREBASE_CONFIG?'Code gespeichert':'Code gespeichert – Sync braucht noch die Firebase-Einrichtung');initSync();return}
@@ -631,7 +740,7 @@ document.addEventListener('click',async e=>{
 document.addEventListener('submit',e=>{
   e.preventDefault();
   const a=e.target.dataset.a;
-  if(a==='saveform'){saveForm(e.target);render()}
+  if(a==='saveform'){if(saveForm(e.target)!==false)render()}
   if(a==='shopadd'){const t=$('#shopin').value.trim();if(t){const z=parseZutat(t);const res=addIng(z,'');if(res==='vorrat')toast('Ist schon im Vorrat');render();$('#shopin').focus()}}
   if(a==='vadd'){const t=$('#vin').value.trim();if(t&&!S.vorrat.some(x=>x.key===normName(t)))put('vorrat',{id:uid(),name:t,key:normName(t)});render()}
 });
@@ -678,15 +787,25 @@ async function kiFill(){
   }catch{st.textContent='Keine Verbindung zum KI-Dienst.'}
 }
 
+/* ============ Doppelte Links ============ */
+function linkKey(u){
+  u=String(u||'').trim();if(!u)return '';
+  const m=u.match(/instagram\.com\/(?:[^/?#]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i);
+  if(m)return 'ig:'+m[1];
+  try{const x=new URL(u);x.hash='';[...x.searchParams.keys()].forEach(k=>{if(/^(utm_|igsh|fbclid|si$)/i.test(k))x.searchParams.delete(k)});return (x.host+x.pathname).replace(/\/$/,'').toLowerCase()+x.search}catch{return u.toLowerCase()}
+}
+
 /* ============ Teilen-Eingang (Kurzbefehl) ============ */
 function intake(){
   const p=new URLSearchParams(location.search);
   const link=p.get('link')||(p.get('text')||'').match(/https?:\/\/\S+/)?.[0];
   if(!link)return;
-  if(!S.rezepte.some(r=>r.link===link))put('rezepte',{id:uid(),titel:'Neues Rezept',portionen:2,zutaten:[],schritte:[],tags:[],link,notiz:'',entwurf:true});
+  const ex=S.rezepte.find(r=>linkKey(r.link)===linkKey(link));
   history.replaceState(null,'',location.pathname);
   tab='rezepte';
-  const r=S.rezepte.find(r=>r.link===link);
+  if(ex&&!ex.entwurf){view={type:'detail',id:ex.id};setTimeout(()=>toast('Das hast du schon – hier ist das Rezept'),500);return}
+  if(!ex)put('rezepte',{id:uid(),titel:'Neues Rezept',portionen:2,zutaten:[],schritte:[],tags:[],link,notiz:'',entwurf:true});
+  const r=S.rezepte.find(r=>linkKey(r.link)===linkKey(link));
   const cap=(p.get('caption')||'').trim();
   view={type:'edit',id:r.id,auto:true,caption:/^https?:\/\/\S+$/.test(cap)?'':cap};
 }
