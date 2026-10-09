@@ -9,4 +9,4 @@ window.FIREBASE_CONFIG = {
   appId: "1:969268852046:web:01a4ab4a267681f72f1a1f"
 };
 // Adresse des Cloudflare Workers für den KI-Import (leer = KI-Funktion aus).
-window.RECIPE_WORKER = "";
+window.RECIPE_WORKER = "https://rezepte-ki.jnhbr97.workers.dev";
