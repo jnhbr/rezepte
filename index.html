@@ -165,7 +165,7 @@ function dbPath(){const c=localStorage.getItem(LSC);return c?`haushalte/${c}`:nu
 async function initSync(){
   fb.unsub.forEach(u=>u());fb.unsub=[];fb.on=false;
   const cfg=window.FIREBASE_CONFIG,path=dbPath();
-  if(!cfg||!path){render();return}
+  if(!cfg||!path){renderSafe();return}
   try{
     if(!window.firebase){
       for(const f of['app','firestore'])await new Promise((ok,no)=>{const s=document.createElement('script');s.src=`https://www.gstatic.com/firebasejs/10.12.0/firebase-${f}-compat.js`;s.onload=ok;s.onerror=no;document.head.appendChild(s)});
@@ -183,13 +183,13 @@ async function initSync(){
           else if(i<0){S[col].push(d);ch=true}
           else if((d.updated||0)>(S[col][i].updated||0)){S[col][i]=d;ch=true}
         });
-        if(ch){save();render()}
+        if(ch){save();renderSafe()}
         fb.on=true;
-      },e=>{fb.on=false;console.warn(e);render()}));
+      },e=>{fb.on=false;console.warn(e);renderSafe()}));
     }
     fb.on=true;
   }catch(e){console.warn('Sync nicht verfügbar',e);fb.on=false}
-  render();
+  renderSafe();
 }
 function put(col,item){
   item.updated=Date.now();
@@ -214,6 +214,7 @@ const ICON={
   cart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2.5l2 11h10l2-8H7"/><circle cx="9" cy="19.5" r="1.4"/><circle cx="17" cy="19.5" r="1.4"/></svg>',
   more:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>'
 };
+function renderSafe(){if(view&&view.type==='edit')return;render()}
 let lastKey='';
 function render(){
   const key=view?view.type+view.id:'';const fresh=key!==lastKey;lastKey=key;document.body.classList.toggle('lock',!!view);
@@ -438,11 +439,13 @@ function intake(){
   history.replaceState(null,'',location.pathname);
   tab='rezepte';
   const r=S.rezepte.find(r=>r.link===link);
-  view={type:'edit',id:r.id};
+  view={type:'edit',id:r.id,auto:true};
 }
 
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
-intake();render();initSync();
+intake();render();
+if(view&&view.auto){view.auto=false;kiFill()}
+initSync();
 </script>
 </body>
 </html>
