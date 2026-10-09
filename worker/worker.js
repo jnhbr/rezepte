@@ -18,12 +18,29 @@ const cors = {
 };
 const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, 'content-type': 'application/json' } });
 
+const decode = t => t.replace(/&quot;/g, '"').replace(/&#039;|&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x([0-9a-f]+);/gi, (_, x) => String.fromCodePoint(parseInt(x, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d)).replace(/&amp;/g, '&');
+
+function captionFromEmbed(html) {
+  const m = html.match(/class="Caption"[^>]*>([\s\S]*?)<div class="CaptionComments"/) || html.match(/class="Caption"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/);
+  if (!m) return '';
+  let t = m[1].replace(/<br\s*\/?>/gi, '\n').replace(/<\/(div|p)>/gi, '\n').replace(/<[^>]+>/g, '');
+  t = decode(t).replace(/View all \d+ comments?/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return t;
+}
+
 async function captionFromLink(link) {
+  const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
   try {
-    const r = await fetch(link, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; facebookexternalhit/1.1)' } });
+    const id = link.match(/instagram\.com\/(?:[^/]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i);
+    if (id) {
+      const r = await fetch(`https://www.instagram.com/p/${id[1]}/embed/captioned/`, { headers: { 'user-agent': UA } });
+      const t = captionFromEmbed(await r.text());
+      if (t) return t;
+    }
+    const r = await fetch(link, { headers: { 'user-agent': 'facebookexternalhit/1.1' } });
     const h = await r.text();
     const m = h.match(/<meta[^>]+(?:property="og:description"|name="description")[^>]+content="([^"]*)"/i);
-    return m ? m[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&#x([0-9a-f]+);/gi, (_, x) => String.fromCodePoint(parseInt(x, 16))) : '';
+    return m ? decode(m[1]) : '';
   } catch { return ''; }
 }
 
