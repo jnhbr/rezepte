@@ -103,6 +103,7 @@ label.f{display:block;margin:16px 0 6px;font-size:13px;color:var(--mute);font-we
 .cook ol.steps li.cur{color:#fff}
 .cook ol.steps li:not(.cur){opacity:.55}
 .cook ul.zut li{font-size:19px}
+.cook .nextbtn{margin-top:12px;padding:12px 20px;font-size:17px}
 .toast{position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:99px;font-size:14px;z-index:60;animation:up .2s}
 .sync{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--mute)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--mute)}
@@ -375,6 +376,7 @@ function render(){
   </nav>
   ${view?sheet():''}`;
   if(fresh&&view){const sh=$('.sheet');if(sh)sh.classList.add('in')}
+  if(view&&view.type==='cook'&&view.jump){view.jump=false;const c=$('.sheet li.cur');if(c)c.scrollIntoView({block:'center'})}
 }
 function filtered(){
   const ql=q.toLowerCase();
@@ -489,8 +491,7 @@ function cookView(r){
   <div class="wrap" style="padding-bottom:140px">
     <h2 style="font-size:28px;margin:6px 0 16px">${esc(r.titel)}</h2>
     <ul class="zut">${scaled(r).map(z=>`<li><span class="m">${esc([fmt(z.m),z.e].filter(Boolean).join(' '))}</span><span>${esc(z.n)}</span></li>`).join('')}</ul>
-    <div class="sec"><ol class="steps">${(r.schritte||[]).map((s,i)=>{const t=stepTime(s);return `<li class="${i===cur?'cur':''}" data-a="step" data-v="${i}"><span>${esc(s)}${t?`<br><button class="btn sm" style="margin-top:8px" data-a="timer" data-v="${i}">⏱ Timer ${t.label}</button>`:''}</span></li>`}).join('')}</ol></div>
-    <div class="row"><button class="btn" data-a="stepnext">Nächster Schritt ›</button></div>
+    <div class="sec"><ol class="steps">${(r.schritte||[]).map((s,i)=>{const t=stepTime(s);const last=i===(r.schritte.length-1);return `<li class="${i===cur?'cur':''}" data-a="step" data-v="${i}"><span>${esc(s)}${t?`<br><button class="btn sm" style="margin-top:8px" data-a="timer" data-v="${i}">⏱ Timer ${t.label}</button>`:''}${i===cur?`<br><button class="btn pri nextbtn" data-a="${last?'uncook':'stepnext'}">${last?'Fertig ✓':'Nächster Schritt ›'}</button>`:''}</span></li>`}).join('')}</ol></div>
   </div></div>`;
 }
 function editView(r){
@@ -597,8 +598,8 @@ document.addEventListener('click',async e=>{
     case 'toshop':addToShop(r);break;
     case 'cook':view={type:'cook',id:view.id,portionen:view.portionen,step:0};wake(true);break;
     case 'uncook':wake(false);view={type:'detail',id:view.id,portionen:view.portionen};break;
-    case 'step':view.step=+v;break;
-    case 'stepnext':view.step=Math.min((r.schritte||[]).length-1,(view.step||0)+1);break;
+    case 'step':view.step=+v;view.jump=true;break;
+    case 'stepnext':view.step=Math.min((r.schritte||[]).length-1,(view.step||0)+1);view.jump=true;break;
     case 'timer':{const t=stepTime(r.schritte[+v]);if(!t)return;try{audio=audio||new(window.AudioContext||window.webkitAudioContext)()}catch{}timers.push({id:uid(),label:`${r.titel}: ${t.label}`,end:Date.now()+t.sec*1000});tickTimers();toast('Timer gestartet');return}
     case 'tstop':timers=timers.filter(t=>t.id!==v);tickTimers();return;
     case 'star':{let me=ich();if(!me){me=(prompt('Wie heisst du? (damit eure Bewertungen getrennt bleiben)')||'').trim();if(!me)return;localStorage.setItem(LSN,me)}r.bew=r.bew||{};if(r.bew[me]===+v)delete r.bew[me];else r.bew[me]=+v;put('rezepte',r);break}
