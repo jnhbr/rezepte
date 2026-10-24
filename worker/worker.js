@@ -147,6 +147,40 @@ async function fromWebpage(link) {
   } catch (e) { return { text: '', img: '', dbg: 'Fehler: ' + String(e).slice(0, 60) }; }
 }
 
+// ---- TikTok: Beschreibung und Vorschaubild aus den Daten der Videoseite ----
+async function fromTikTok(link) {
+  try {
+    const r = await fetch(link.split('?')[0], { redirect: 'follow', headers: { 'user-agent': BROWSER_UA, 'accept-language': 'de-CH,de;q=0.9,en;q=0.7' } });
+    const h = await r.text();
+    const m = h.match(/<script[^>]+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+    let item = null;
+    if (m) { try { item = JSON.parse(m[1])['__DEFAULT_SCOPE__']?.['webapp.video-detail']?.itemInfo?.itemStruct || null; } catch { /* weiter */ } }
+    const text = item ? String(item.desc || '').trim() : '';
+    const img = item ? item.video?.originCover || item.video?.cover || '' : '';
+    return { text, img, dbg: `TikTok ${r.status}/${text ? 'Text' : item ? 'kein Text' : 'keine Daten'}` };
+  } catch (e) { return { text: '', img: '', dbg: 'Fehler: ' + String(e).slice(0, 60) }; }
+}
+
+// ---- YouTube (Shorts und normale Videos): Titel und Beschreibung aus der Videoseite ----
+const YT = /(?:youtube\.com\/(?:shorts|live|embed)\/|youtube\.com\/watch\?(?:[^#]*&)?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/i;
+async function fromYouTube(link) {
+  try {
+    const id = (link.match(YT) || [])[1];
+    if (!id) return { text: '', img: '', dbg: 'YouTube-Link nicht erkannt' };
+    const r = await fetch(`https://www.youtube.com/watch?v=${id}&hl=de`, { headers: { 'user-agent': BROWSER_UA, 'accept-language': 'de-CH,de;q=0.9,en;q=0.7', cookie: 'CONSENT=YES+1; SOCS=CAI' } });
+    const h = await r.text();
+    const d = h.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
+    let desc = '';
+    if (d) { try { desc = JSON.parse('"' + d[1] + '"'); } catch { /* weiter */ } }
+    const og = (p) => { const m = h.match(new RegExp(`<meta[^>]+(?:property|name)=["']${p}["'][^>]+content=["']([^"']*)["']`, 'i')); return m ? decode(m[1]) : ''; };
+    if (!desc) desc = og('og:description');
+    const title = og('og:title');
+    const img = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+    const text = desc.trim().length > 20 ? `Titel: ${title}\nBeschreibung:\n${desc.trim()}`.slice(0, 9000) : '';
+    return { text, img, dbg: `YouTube ${r.status}/${text ? 'Beschreibung' : 'keine Beschreibung'}` };
+  } catch (e) { return { text: '', img: '', dbg: 'Fehler: ' + String(e).slice(0, 60) }; }
+}
+
 async function captionFallback(link) {
   try {
     const r = await fetch(link, { headers: { 'user-agent': 'facebookexternalhit/1.1' } });
@@ -205,6 +239,11 @@ export default {
         img = ig.img; dbg = ig.dbg;
         if (!text && !b.image) text = ig.caption || (await captionFallback(b.link));
         if (!text && !b.image) return json({ fehler: `Instagram gibt den Text nicht heraus (${dbg}). Bitte Text oder Screenshot einfügen.` }, 422);
+      } else if (/tiktok\.com/i.test(b.link) || YT.test(b.link) || /\/\/youtu\.be\//i.test(b.link)) {
+        const social = /tiktok\.com/i.test(b.link) ? await fromTikTok(b.link) : await fromYouTube(b.link);
+        img = social.img; dbg = social.dbg;
+        if (!text && !b.image) text = social.text;
+        if (!text && !b.image) return json({ fehler: `Zu diesem Video habe ich keinen Rezepttext gefunden (${dbg}). Bitte Text aus Beschreibung oder Kommentar einfügen oder einen Screenshot machen.` }, 422);
       } else if (/^https?:\/\//i.test(b.link)) {
         const wp = await fromWebpage(b.link);
         img = wp.img; dbg = wp.dbg;

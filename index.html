@@ -483,7 +483,7 @@ function detailView(r){
     <div class="row">
       <button class="btn pri" data-a="cook">Kochmodus</button>
       <button class="btn" data-a="fav" data-v="${r.id}">${r.fav?'♥ Favorit':'♡ Zu Favoriten'}</button>
-      ${r.link?`<a class="btn" href="${esc(r.link)}" target="_blank" rel="noopener" style="text-decoration:none">Original-Reel</a>`:''}
+      ${r.link?`<a class="btn" href="${esc(r.link)}" target="_blank" rel="noopener" style="text-decoration:none">${/instagram\.com/i.test(r.link)?'Original-Reel':/tiktok\.com/i.test(r.link)?'Original-TikTok':/youtu/i.test(r.link)?'Original-Video':'Original-Rezept'}</a>`:''}
     </div>
     ${r.entwurf?`<div class="sec"><div class="note">Entwurf – nur der Link wurde gespeichert. Tippe auf «Bearbeiten» und ergänze Zutaten und Schritte.</div></div>`:''}
     ${(r.zutaten||[]).length?`<div class="sec"><h2>Zutaten</h2>
@@ -518,7 +518,7 @@ function editView(r){
   <div class="wrap" style="padding-bottom:60px">
     <h2 style="font-size:28px;margin:6px 0 0">${r.id?'Rezept bearbeiten':'Neues Rezept'}</h2>
     ${window.RECIPE_WORKER?`<div class="sec" style="margin-top:16px"><div class="note"><b>✨ Mit KI ausfüllen</b>
-      <textarea class="in" id="kitext" rows="3" placeholder="Text unter dem Reel hier einfügen …" style="margin-top:10px">${esc(view.caption||'')}</textarea>
+      <textarea class="in" id="kitext" rows="3" placeholder="Text unter dem Reel/Video oder von der Webseite hier einfügen …" style="margin-top:10px">${esc(view.caption||'')}</textarea>
       <div class="row" style="margin-top:10px"><button type="button" class="btn sm" data-a="pickimg">Screenshot wählen</button><button type="button" class="btn pri sm" data-a="ki">Ausfüllen</button></div>
       <input type="file" id="kiimg" accept="image/*" hidden><div class="hint" id="kistat">${r.link?'Ohne Text versuche ich, ihn vom Link zu holen.':''}</div><div id="kisug"></div></div></div>`:''}
     <label class="f">Foto</label>
@@ -533,7 +533,7 @@ function editView(r){
     <label class="f">Zubereitung (ein Schritt pro Zeile)</label>
     <textarea class="in" name="schritte" rows="7">${esc((r.schritte||[]).join('\n'))}</textarea>
     <label class="f">Tags (mit Komma trennen)</label><input class="in" name="tags" value="${esc((r.tags||[]).join(', '))}" placeholder="Vegi, Schnell, Pasta">
-    <label class="f">Link zum Reel</label><input class="in" name="link" type="url" inputmode="url" value="${esc(r.link||'')}" placeholder="https://www.instagram.com/…">
+    <label class="f">Link (Reel, TikTok, YouTube, Webseite)</label><input class="in" name="link" type="url" inputmode="url" value="${esc(r.link||'')}" placeholder="https://…">
     <label class="f">Notizen</label><textarea class="in" name="notiz" rows="3" placeholder="Nächstes Mal weniger Salz …">${esc(r.notiz||'')}</textarea>
     ${r.id?'<div class="row"><button type="button" class="btn danger" data-a="delrec">Rezept löschen</button></div>':''}
   </div></form></div>`;
@@ -792,6 +792,8 @@ function linkKey(u){
   u=String(u||'').trim();if(!u)return '';
   const m=u.match(/instagram\.com\/(?:[^/?#]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i);
   if(m)return 'ig:'+m[1];
+  const t=u.match(/tiktok\.com\/(?:@[^/]+\/)?video\/(\d+)/i);if(t)return 'tt:'+t[1];
+  const y=u.match(/(?:youtube\.com\/(?:shorts|live|embed)\/|youtube\.com\/watch\?(?:[^#]*&)?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/i);if(y)return 'yt:'+y[1];
   try{const x=new URL(u);x.hash='';[...x.searchParams.keys()].forEach(k=>{if(/^(utm_|igsh|fbclid|si$)/i.test(k))x.searchParams.delete(k)});return (x.host+x.pathname).replace(/\/$/,'').toLowerCase()+x.search}catch{return u.toLowerCase()}
 }
 

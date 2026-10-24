@@ -36,4 +36,4 @@ App *Kurzbefehle* → «+» → Name «Zu Rezepte»:
 3. Aktion «URL-Codierung» auf die Eingabe anwenden (vor Schritt 2 einbauen), dann die codierte Variable verwenden.
 4. Aktion «URLs öffnen» mit dem Text aus Schritt 2.
 
-Nutzung: In Instagram beim Reel *Teilen → Mehr → Zu Rezepte*. Die App öffnet sich mit dem Entwurf; mit «Ausfüllen» (ohne Text) wird versucht, den Text vom Link zu holen, sonst Text oder Screenshot einfügen.
+Nutzung: In Instagram, TikTok, YouTube (auch Shorts) oder Safari (Rezeptseiten) über *Teilen → Mehr → Zu Rezepte*. Die App öffnet sich mit dem Entwurf; mit «Ausfüllen» (ohne Text) wird versucht, den Text vom Link zu holen, sonst Text oder Screenshot einfügen.
