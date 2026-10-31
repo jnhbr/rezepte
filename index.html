@@ -79,6 +79,7 @@ body.lock{overflow:hidden}
 ul.zut{list-style:none;margin:0;padding:0}
 ul.zut li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
 ul.zut .m{min-width:78px;font-weight:600;color:var(--acc-d)}
+span.zm{color:var(--acc-d);font-weight:600;white-space:nowrap}
 ol.steps{list-style:none;counter-reset:s;margin:0;padding:0}
 ol.steps li{counter-increment:s;display:flex;gap:14px;padding:12px 0;line-height:1.5}
 ol.steps li::before{content:counter(s);flex:none;width:30px;height:30px;border-radius:50%;background:var(--acc-l);color:var(--acc-d);font-family:var(--serif);font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px}
@@ -465,6 +466,27 @@ function scaled(r){
   const f=(view.portionen||r.portionen||1)/(r.portionen||1);
   return (r.zutaten||[]).map(z=>({...z,m:z.m==null?null:z.m*f}));
 }
+/* Mengen in Klammern direkt im Schritt: «Mehl» → «Mehl (200 g)» (erste Nennung pro Schritt) */
+function stepHtml(step,zs){
+  const hits=[];
+  (zs||[]).forEach(z=>{
+    const amt=[fmt(z.m),z.e].filter(Boolean).join(' ');
+    if(!amt)return;
+    const clean=(z.n||'').replace(/\(.*?\)/g,'').split(',')[0].trim();
+    const ws=clean.split(/\s+/).filter(w=>w.length>=3);
+    const cands=[ws[ws.length-1],...ws.slice(0,-1)].filter(Boolean);
+    for(const w of cands){
+      let st=w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      if(w.length>4)st=st.replace(/(en|n|e|s)$/i,'');
+      const m=new RegExp('(?<![\\p{L}])'+st+'\\p{L}*','iu').exec(step);
+      if(m){const end=m.index+m[0].length;if(!hits.some(h=>m.index<h.end&&end>h.start)){hits.push({start:m.index,end,amt});break}}
+    }
+  });
+  hits.sort((a,b)=>a.start-b.start);
+  let out='',pos=0;
+  hits.forEach(h=>{out+=esc(step.slice(pos,h.end))+` <span class="zm">(${esc(h.amt)})</span>`;pos=h.end});
+  return out+esc(step.slice(pos));
+}
 function stepTime(s){
   const m=s.match(/(\d+)(?:\s*[-–]\s*(\d+))?\s*(Stunden?|Std\.?|Minuten?|Min\.?|Sekunden?|Sek\.?)(?![a-zäöüA-Z])/i);
   if(!m)return null;
@@ -490,7 +512,7 @@ function detailView(r){
       <div class="port"><button data-a="pm" data-v="-1">−</button><span><b>${p}</b> Portion${p===1?'':'en'}</span><button data-a="pm" data-v="1">+</button></div>
       <ul class="zut">${scaled(r).map(z=>`<li><span class="m">${esc([fmt(z.m),z.e].filter(Boolean).join(' '))}</span><span>${esc(z.n)}</span>${inVorrat(z.n)?'<span class="da">✓ im Vorrat</span>':''}</li>`).join('')}</ul>
       <div class="row" style="margin-top:14px"><button class="btn" data-a="toshop">Auf die Einkaufsliste</button></div></div>`:''}
-    ${(r.schritte||[]).length?`<div class="sec"><h2>Zubereitung</h2><ol class="steps">${r.schritte.map(s=>`<li><span>${esc(s)}</span></li>`).join('')}</ol></div>`:''}
+    ${(r.schritte||[]).length?`<div class="sec"><h2>Zubereitung</h2><ol class="steps">${r.schritte.map(s=>`<li><span>${stepHtml(s,scaled(r))}</span></li>`).join('')}</ol></div>`:''}
     <div class="sec"><h2>Bewertung</h2>
       ${others.map(([n,v])=>`<div class="rate"><span>${esc(n)}</span><span class="stars">${stars(v)}</span></div>`).join('')}
       <div class="rate"><span>${me?esc(me)+' (du)':'Du'}</span><span class="stars">${[1,2,3,4,5].map(i=>`<button data-a="star" data-v="${i}" class="${(bew[me]||0)>=i?'on':''}">★</button>`).join('')}</span></div>
@@ -508,7 +530,7 @@ function cookView(r){
     <div class="hint">${voiceOn?'Sag: «weiter», «zurück», «wiederholen», «timer», «fertig»':'Am Laptop: Pfeiltasten ← →'} · Bildschirm bleibt an</div>
     <div class="port"><button data-a="pm" data-v="-1">−</button><span><b>${p}</b> Portion${p===1?'':'en'}</span><button data-a="pm" data-v="1">+</button></div>
     <ul class="zut">${scaled(r).map((z,i)=>`<li class="zc ${got.has(i)?'got':''}" data-a="zchk" data-v="${i}"><span class="m">${esc([fmt(z.m),z.e].filter(Boolean).join(' '))}</span><span>${esc(z.n)}</span></li>`).join('')}</ul>
-    <div class="sec"><ol class="steps">${(r.schritte||[]).map((s,i)=>{const t=stepTime(s);const last=i===(r.schritte.length-1);return `<li class="${i===cur?'cur':''}" data-a="step" data-v="${i}"><span>${esc(s)}${t?`<br><button class="btn sm" style="margin-top:8px" data-a="timer" data-v="${i}">⏱ Timer ${t.label}</button>`:''}${i===cur?`<br><button class="btn pri nextbtn" data-a="${last?'uncook':'stepnext'}">${last?'Fertig ✓':'Nächster Schritt ›'}</button>`:''}</span></li>`}).join('')}</ol></div>
+    <div class="sec"><ol class="steps">${(r.schritte||[]).map((s,i)=>{const t=stepTime(s);const last=i===(r.schritte.length-1);return `<li class="${i===cur?'cur':''}" data-a="step" data-v="${i}"><span>${stepHtml(s,scaled(r))}${t?`<br><button class="btn sm" style="margin-top:8px" data-a="timer" data-v="${i}">⏱ Timer ${t.label}</button>`:''}${i===cur?`<br><button class="btn pri nextbtn" data-a="${last?'uncook':'stepnext'}">${last?'Fertig ✓':'Nächster Schritt ›'}</button>`:''}</span></li>`}).join('')}</ol></div>
   </div></div>`;
 }
 function editView(r){
