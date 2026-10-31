@@ -783,7 +783,11 @@ document.addEventListener('change',async e=>{
 /* ============ KI-Import ============ */
 let kiImage=null;
 function shrink(file,max=1400,qual=.82){return new Promise((ok,no)=>{const im=new Image();im.onload=()=>{const k=Math.min(1,max/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',qual))};im.onerror=no;im.src=typeof file==='string'?file:URL.createObjectURL(file)})}
-async function kiFill(){
+function dropDraft(msg){
+  const r=S.rezepte.find(x=>x.id===(view||{}).id);
+  if(r&&r.entwurf){del('rezepte',r.id);view=null;render();toast(msg)}
+}
+async function kiFill(auto){
   const st=$('#kistat'),f=$('form[data-a="saveform"]');
   const code=localStorage.getItem(LSC);
   if(!code){st.textContent='Bitte zuerst unter «Mehr» den Zugangscode eintragen.';return}
@@ -793,7 +797,8 @@ async function kiFill(){
   try{
     const res=await fetch(window.RECIPE_WORKER,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,text,image:kiImage,link,pool:poolNames()})});
     const d=await res.json();
-    if(d.fehler){st.textContent=d.fehler;return}
+    if(d.fehler){if(auto)return dropDraft('Kein Rezept gefunden – nicht gespeichert');st.textContent=d.fehler;return}
+    if(auto&&!(d.zutaten||[]).length&&!(d.schritte||[]).length)return dropDraft('Kein Rezept in der Caption gefunden – nicht gespeichert');
     f.titel.value=d.titel||f.titel.value;
     f.portionen.value=d.portionen||f.portionen.value;
     const zl=(d.zutaten||[]);
@@ -806,7 +811,7 @@ async function kiFill(){
     if(d.bild&&!hatBild){try{view.bild=await shrink(d.bild,560,.7);$('#fotoprev').style.backgroundImage=`url(${view.bild})`}catch{}}
     $('#kisug').innerHTML=d.neuerTag?`<div class="hint" style="margin-top:8px">Kein passender Tag in der Liste. Neuen Tag anlegen?</div><button type="button" class="btn sm" style="margin-top:6px" data-a="acceptTag" data-v="${esc(d.neuerTag)}">+ ${esc(d.neuerTag)}</button>`:'';
     st.textContent='Fertig – bitte kurz prüfen und speichern.';
-  }catch{st.textContent='Keine Verbindung zum KI-Dienst.'}
+  }catch{if(auto)return dropDraft('Keine Verbindung – Rezept nicht gespeichert');st.textContent='Keine Verbindung zum KI-Dienst.'}
 }
 
 /* ============ Doppelte Links ============ */
@@ -837,7 +842,7 @@ function intake(){
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 cleanTags();
 intake();render();
-if(view&&view.auto){view.auto=false;kiFill()}
+if(view&&view.auto){view.auto=false;kiFill(true)}
 initSync();
 </script>
 </body>
